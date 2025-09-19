@@ -10,6 +10,16 @@ load_dotenv
 memory = ChatMessageHistory()
 
 async def llm_client():
+    system_prompt = """
+    请处理用户给你的信息，先用sequential thinking思考，再用并搜索，最后以以下格式输出
+    {
+    "姓名":
+    "年龄":
+    "工作经历"：
+    "学历":
+    "自我陈述":
+    }
+    """
     return ChatOpenAI(
             model="deepseek-chat",
             temperature=0.2,
