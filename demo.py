@@ -1,7 +1,7 @@
 import asyncio
 import os
 import json
-from langchain_mcp_adapters import MultiServerMCPClient
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 from langchain_mcp_adapters.sse import SseServerParameters
 from dotenv import load_dotenv
@@ -14,7 +14,7 @@ async def llm_client():
             model="deepseek-chat",
             temperature=0.2,
             api_key=os.getenv('API_KEY'),
-            base_url="https://api.deepseek.com"
+            base_url="https://api.deepseek.com",
             system=system_prompt,
             response_format={"type":"json_object"}
             )
@@ -22,13 +22,13 @@ async def llm_client():
 async def mcp_client():
     server_configs = {
         "thinking-sse":{
-            "url"="ttps://mcp.api-inference.modelscope.net/3263ca4515d34c/sse",
-            "transport"="sse"
+            "url":"ttps://mcp.api-inference.modelscope.net/3263ca4515d34c/sse",
+            "transport":"sse"
                 },
 
         "bing-sse":{
-            "url"="https://mcp.api-inference.modelscope.net/9b8518aab38346/sse",
-            "transport"="sse"
+            "url":"https://mcp.api-inference.modelscope.net/9b8518aab38346/sse",
+            "transport":"sse"
             }
         }
 
