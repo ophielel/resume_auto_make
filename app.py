@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, send_file
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import asyncio
@@ -7,6 +7,10 @@ import os
 import secrets
 from datetime import datetime, timedelta
 from demo import optimize_resume_with_llm
+from prompt_templates import build_resume_prompt
+from rules_engine import validate_resume_markdown
+from llm_service import generate_markdown_resume
+import markdown as md
 from database import db, User, WorkExperience, EducationBackground, Skill, Award, Certificate, Project, Resume, UserSession
 
 app = Flask(__name__)
@@ -687,6 +691,130 @@ def generate_resume():
             'success': False,
             'error': f'服务器内部错误: {str(e)}'
         }), 500
+
+
+@app.route('/api/generate-resume-v2', methods=['POST'])
+def generate_resume_v2():
+    """基于Prompt与规则引擎的Markdown简历生成端点"""
+    try:
+        data = request.get_json() or {}
+
+        # 期望字段：job_title, job_description, user_profile
+        job_title = data.get('job_title')
+        job_description = data.get('job_description')
+        user_profile = data.get('user_profile')
+        if not job_title or not job_description or not user_profile:
+            return jsonify({
+                'success': False,
+                'error': '缺少必填字段: job_title/job_description/user_profile'
+            }), 400
+
+        style = data.get('style')
+        prompt = build_resume_prompt(job_title, job_description, user_profile)
+        if style:
+            prompt += f"\n请采用风格: {style}。标题、层级、要点风格需体现该主题，但仍保持简洁专业。"
+        markdown_resume = run_async(generate_markdown_resume(prompt))
+        if not markdown_resume:
+            return jsonify({
+                'success': False,
+                'error': 'AI生成简历失败，请稍后重试'
+            }), 500
+
+        # 规则校验
+        errors = validate_resume_markdown(markdown_resume, job_description)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'resume_markdown': markdown_resume,
+                'validation_errors': errors,
+                'style': style or 'default'
+            },
+            'message': '简历生成完成'
+        })
+    except Exception as e:
+        print(f"generate-resume-v2 出错: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'服务器内部错误: {str(e)}'
+        }), 500
+
+
+@app.route('/api/validate-resume', methods=['POST'])
+def validate_resume_api():
+    """对任意Markdown简历按JD进行质量校验。"""
+    try:
+        data = request.get_json() or {}
+        resume_markdown = data.get('resume_markdown') or ''
+        job_description = data.get('job_description') or ''
+        if not resume_markdown or not job_description:
+            return jsonify({
+                'success': False,
+                'error': '缺少必填字段: resume_markdown/job_description'
+            }), 400
+
+        errors = validate_resume_markdown(resume_markdown, job_description)
+        return jsonify({
+            'success': True,
+            'data': {
+                'errors': errors
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'校验失败: {str(e)}'
+        }), 500
+
+
+def _render_markdown_to_html(markdown_text: str, theme: str = 'classic') -> str:
+    html_content = md.markdown(markdown_text, extensions=['extra'])
+    theme_class = f"theme-{theme}" if theme in ['classic', 'modern', 'minimalist'] else 'theme-classic'
+    return render_template('resume_base.html', title='简历', content=f'<div class="{theme_class}">{html_content}</div>')
+
+
+@app.route('/api/render-resume-html', methods=['POST'])
+def render_resume_html():
+    """将Markdown简历渲染为带主题的HTML"""
+    try:
+        data = request.get_json() or {}
+        resume_markdown = data.get('resume_markdown') or ''
+        theme = data.get('style') or data.get('theme') or 'classic'
+        if not resume_markdown:
+            return jsonify({'success': False, 'error': '缺少必填字段: resume_markdown'}), 400
+        html = _render_markdown_to_html(resume_markdown, theme)
+        return jsonify({'success': True, 'data': {'html': html, 'style': theme}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'渲染失败: {str(e)}'}), 500
+
+
+@app.route('/api/resume-pdf', methods=['POST'])
+def resume_pdf():
+    """将Markdown或HTML简历转换为PDF并返回下载。"""
+    try:
+        try:
+            from weasyprint import HTML  # 延迟导入，避免环境未装依赖时报模块级错误
+        except Exception:
+            return jsonify({'success': False, 'error': 'WeasyPrint 未安装或依赖缺失，请先安装 weasyprint 或改用 pdfkit'}), 500
+
+        data = request.get_json() or {}
+        resume_markdown = data.get('resume_markdown')
+        html_input = data.get('html')
+        theme = data.get('style') or data.get('theme') or 'classic'
+        if not (resume_markdown or html_input):
+            return jsonify({'success': False, 'error': '需要提供 resume_markdown 或 html'}), 400
+
+        if not html_input:
+            html_input = _render_markdown_to_html(resume_markdown, theme)
+
+        # 生成临时PDF
+        pdf_bytes = HTML(string=html_input, base_url=os.getcwd()).write_pdf(stylesheets=[])
+        tmp_path = os.path.join(os.getcwd(), f"resume_{int(datetime.utcnow().timestamp())}.pdf")
+        with open(tmp_path, 'wb') as f:
+            f.write(pdf_bytes)
+        return send_file(tmp_path, mimetype='application/pdf', as_attachment=True, download_name='resume.pdf')
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'PDF生成失败: {str(e)}'}), 500
 
 if __name__ == '__main__':
     print("启动AI简历优化服务...")
