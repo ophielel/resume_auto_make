@@ -13,7 +13,7 @@ async def create_llm():
     llm = ChatOpenAI(
         model="qwen-plus",  # 或者使用 qwen-turbo, qwen-max 等
         temperature=0.3,
-        api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+        api_key=os.getenv("DASHSCOPE_API_KEY", "sk-1d878ae8655d43aa9b1b65ec100f6aa7"),
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
     return llm
@@ -25,12 +25,14 @@ async def optimize_resume_with_llm(user_info):
     system_prompt = """
     你是一个专业的简历优化专家。请根据用户提供的基本信息，帮助用户完善和优化简历内容。
     
-    要求：
-    1. 保持原有信息的真实性
-    2. 优化语言表达，使其更加专业
-    3. 补充可能缺失但合理的信息
-    4. 按照标准简历格式输出
-    5. 严格按照以下JSON格式输出，不要添加其他内容：
+    重要要求：
+    1. 严格基于用户提供的真实信息，不得编造任何信息
+    2. 如果用户没有提供某些信息，请在相应字段中填写"用户未提供"或留空
+    3. 只能对用户提供的信息进行语言优化和格式整理，不得添加虚假内容
+    4. 保持原有信息的真实性，不得夸大或虚构任何经历、技能、成就等
+    5. 优化语言表达，使其更加专业和规范
+    6. 按照标准简历格式输出
+    7. 严格按照以下JSON格式输出，不要添加其他内容：
     
     {
         "个人信息": {
@@ -43,32 +45,80 @@ async def optimize_resume_with_llm(user_info):
             "学历": "string",
             "学校": "string",
             "专业": "string",
-            "时间": "string"
+            "毕业年份": "string",
+            "GPA": "string"
         },
         "工作经历": [
             {
                 "公司": "string",
                 "职位": "string",
                 "时间": "string",
-                "工作内容": "string"
+                "工作内容": "string",
+                "成就": "string"
             }
         ],
-        "技能专长": ["string"],
-        "自我评价": "string"
+        "技能专长": {
+            "编程技能": ["string"],
+            "技术技能": ["string"],
+            "软技能": ["string"]
+        },
+        "获奖情况": [
+            {
+                "奖项名称": "string",
+                "颁发机构": "string",
+                "获奖时间": "string",
+                "排名": "string"
+            }
+        ],
+        "职业证书": [
+            {
+                "证书名称": "string",
+                "颁发机构": "string",
+                "获得时间": "string",
+                "等级": "string"
+            }
+        ],
+        "项目经验": [
+            {
+                "项目名称": "string",
+                "项目时间": "string",
+                "角色": "string",
+                "技术栈": "string",
+                "项目描述": "string",
+                "成果": "string"
+            }
+        ],
+        "自我评价": "string",
+        "求职意向": {
+            "目标职位": "string",
+            "期望薪资": "string",
+            "期望地点": "string"
+        }
     }
+    
+    请记住：绝对不能编造任何信息！如果用户没有提供某些信息，请如实反映。
     """
 
     user_prompt = f"""
-    请根据以下用户提供的基本信息，帮我完善简历：
+    请根据以下用户提供的详细信息，帮我优化简历：
     
-    用户原始信息：
+    用户提供的原始信息：
     {json.dumps(user_info, ensure_ascii=False, indent=2)}
     
-    请帮我：
-    1. 完善简历的各个部分
-    2. 优化语言表达
-    3. 补充合理的细节
-    4. 按照标准格式输出完整的简历JSON
+    请严格按照以下要求处理：
+    1. 只使用用户提供的信息，不得编造任何内容
+    2. 对现有信息进行语言优化，使其更加专业
+    3. 如果某些字段用户没有填写，请填写"用户未提供"
+    4. 保持信息的真实性和准确性
+    5. 按照标准格式输出完整的简历JSON
+    
+    请特别注意：
+    - 工作经历部分要基于用户提供的workExperience信息
+    - 教育背景要基于用户提供的school、major、graduationYear等信息
+    - 技能部分要基于用户提供的programmingSkills、technicalSkills、softSkills
+    - 获奖情况要基于用户提供的awards信息
+    - 职业证书要基于用户提供的certificates信息
+    - 项目经验要基于用户提供的projects信息
     """
 
     try:
